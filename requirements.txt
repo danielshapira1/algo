@@ -1,0 +1,12 @@
+alpaca-trade-api
+yfinance
+pandas
+numpy
+scikit-learn
+ta
+python-dotenv
+requests
+beautifulsoup4
+nltk
+newsapi
+matplotlib
