@@ -231,7 +231,8 @@ def run_strategy():
     today = datetime.now().date()
     
     top_gainers = fetch_top_gainers(5)
-    symbols = ['AAPL', 'GOOG', 'MSFT', 'AMZN', 'NVDA'] + top_gainers
+    #  + top_gainers for futur impemantion
+    symbols = ['AAPL', 'GOOG', 'MSFT', 'AMZN', 'NVDA']
     end_date = datetime.now()
     start_date = end_date - timedelta(days=6)
     start_date_str = start_date.strftime('%Y-%m-%d')
