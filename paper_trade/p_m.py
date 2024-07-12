@@ -1,7 +1,7 @@
 import threading
 import time
 from datetime import datetime, timedelta
-from utils import api, fetch_latest_price, wait_for_order_fill, log_transaction, is_trading_hours, fetch_data, supertrend, moving_average, add_indicators, train_ml_model, get_time_until_ny_930
+from utils import api, fetch_latest_price, wait_for_order_fill, log_transaction, is_trading_hours, fetch_data, supertrend, moving_average, add_indicators, train_ml_model, get_time_until_ny_930, calculate_momentum_score, calculate_mean_reversion_score, calculate_trend_score
 
 def manage_open_positions(api):
     positions = api.list_positions()
@@ -15,7 +15,6 @@ def manage_open_positions(api):
         average_entry = float(position.avg_entry_price)
         unrealized_plpc = (current_price - average_entry) / average_entry
 
-        # Fetch recent data for analysis
         end_date = datetime.now().strftime('%Y-%m-%d')
         start_date = (datetime.now() - timedelta(days=7)).strftime('%Y-%m-%d')
         df = fetch_data(symbol, start_date, end_date)
@@ -29,24 +28,30 @@ def manage_open_positions(api):
             
             last_row = df.iloc[-1]
 
-            # Dynamic trailing stop loss
+            momentum_score = calculate_momentum_score(last_row)
+            mean_reversion_score = calculate_mean_reversion_score(last_row)
+            trend_score = calculate_trend_score(last_row)
+
+            combined_score = (
+                momentum_score * 0.3 +
+                mean_reversion_score * 0.2 +
+                trend_score * 0.3 +
+                last_row['ml_prediction'] * 0.2
+            )
+
             atr = last_row['atr']
             trailing_stop_loss = max(average_entry * 0.95, current_price - 2 * atr)
 
-            # Take profit levels
-            take_profit_1 = average_entry * 1.05  # 5% profit
-            take_profit_2 = average_entry * 1.10  # 10% profit
-            take_profit_3 = average_entry * 1.20  # 20% profit
+            take_profit_1 = average_entry * 1.05
+            take_profit_2 = average_entry * 1.10
+            take_profit_3 = average_entry * 1.20
 
-            # Check for sell signals
             should_sell = (
                 current_price <= trailing_stop_loss or
-                not last_row['in_uptrend'] or
-                last_row['ml_prediction'] == 0 or
-                unrealized_plpc <= -0.05  # 5% stop loss
+                combined_score < 0.4 or
+                unrealized_plpc <= -0.05
             )
 
-            # Implement partial profit-taking strategy
             if current_price >= take_profit_3:
                 sell_quantity = quantity
             elif current_price >= take_profit_2:
@@ -66,7 +71,7 @@ def manage_open_positions(api):
                         side='sell',
                         type='limit',
                         time_in_force='day',
-                        limit_price=current_price * 0.99  # Set limit price 1% below current price
+                        limit_price=current_price * 0.99
                     )
                     print(f"Placing order to sell {sell_quantity} shares of {symbol} at ${current_price * 0.99:.2f}")
 
@@ -80,7 +85,6 @@ def manage_open_positions(api):
                 except Exception as e:
                     print(f"Error executing sell order for {symbol}: {str(e)}")
 
-            # Implement position sizing strategy
             account = api.get_account()
             buying_power = float(account.buying_power)
             if last_row['in_uptrend'] and last_row['ml_prediction'] == 1 and unrealized_plpc > 0:
@@ -93,7 +97,7 @@ def manage_open_positions(api):
                             side='buy',
                             type='limit',
                             time_in_force='day',
-                            limit_price=current_price * 1.01  # Set limit price 1% above current price
+                            limit_price=current_price * 1.01
                         )
                         print(f"Placing order to buy additional {additional_quantity} shares of {symbol} at ${current_price * 1.01:.2f}")
                 except Exception as e:
@@ -111,12 +115,11 @@ def monitor_positions(api):
             else:
                 print(f"Outside trading hours opens in: {int(hours):02}:{int(minutes):02}:{int(seconds):02}. Skipping position management.")
             
-            # Sleep for 5 minutes or until next trading session, whichever is shorter
             sleep_time = min(time_until_target.total_seconds(), 300)
             time.sleep(sleep_time)
         except Exception as e:
             print(f"Error in monitor_positions: {str(e)}")
-            time.sleep(60)  # Wait for 1 minute before retrying if there's an error
+            time.sleep(60)
 
 def start_monitoring(api):
     monitoring_thread = threading.Thread(target=monitor_positions, args=(api,), daemon=True)

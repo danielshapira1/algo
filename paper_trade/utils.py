@@ -2,8 +2,8 @@ import alpaca_trade_api as tradeapi
 import yfinance as yf
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
 import ta
 import csv
 from sklearn.ensemble import RandomForestClassifier
@@ -12,19 +12,12 @@ import os
 import pytz
 from dotenv import load_dotenv
 
-
 load_dotenv()
 
 # Alpaca API credentials
 PAPER_API_KEY_ID = os.getenv('APCA_API_KEY_ID_PAPER')
 PAPER_SECRET_KEY = os.getenv('APCA_API_SECRET_KEY_PAPER')
 PAPER_BASE_URL = os.getenv('APCA_API_BASE_URL_PAPER')
-
-# if KEY or ID not match delete venv and recreate it
-print(f"PAPER_API_KEY_ID: {PAPER_API_KEY_ID}")
-print(f"PAPER_SECRET_KEY: {PAPER_SECRET_KEY}")
-print(f"PAPER_BASE_URL: {PAPER_BASE_URL}")
-
 
 api = tradeapi.REST(PAPER_API_KEY_ID, PAPER_SECRET_KEY, PAPER_BASE_URL, api_version='v2')
 
@@ -36,9 +29,7 @@ def fetch_latest_price(api, symbol):
         print(f"Error fetching latest price for {symbol}: {str(e)}")
         return None
 
-
 def wait_for_order_fill(api, order_id, timeout=60):
-    import time
     start_time = time.time()
     while time.time() - start_time < timeout:
         try:
@@ -64,7 +55,6 @@ def is_trading_hours(api):
     clock = api.get_clock()
     return clock.is_open
 
-# Fetch historical data
 def fetch_data(symbol, start, end, interval='1m'):
     try:
         df = yf.download(symbol, start=start, end=end, interval=interval)
@@ -74,10 +64,13 @@ def fetch_data(symbol, start, end, interval='1m'):
         print(f"Fetched {len(df)} rows for symbol {symbol}.")
         return df
     except Exception as e:
-        print(f"Error fetching data: {e}")
+        print(f"Error fetching data for {symbol}: {e}")
         return None
-    
+
 def supertrend(df, atr_period, multiplier):
+    if 'High' not in df.columns or 'Low' not in df.columns or 'Close' not in df.columns:
+        raise ValueError("DataFrame must contain 'High', 'Low', and 'Close' columns.")
+
     hl2 = (df['High'] + df['Low']) / 2
     df['atr'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'], window=atr_period)
     df['upperband'] = hl2 + (multiplier * df['atr'])
@@ -97,11 +90,10 @@ def supertrend(df, atr_period, multiplier):
                 df.loc[df.index[current], 'lowerband'] = df['lowerband'].iloc[previous]
             if not df['in_uptrend'].iloc[current] and df['upperband'].iloc[current] > df['upperband'].iloc[previous]:
                 df.loc[df.index[current], 'upperband'] = df['upperband'].iloc[previous]
-                
+
     return df
 
-# Moving Average Calculation
-def moving_average(df, length, ma_type):
+def moving_average(df, length, ma_type='sma'):
     if ma_type == 'sma':
         df['ma'] = df['Close'].rolling(window=length).mean()
     elif ma_type == 'ema':
@@ -118,12 +110,56 @@ def moving_average(df, length, ma_type):
     return df
 
 def add_indicators(df):
-    df['rsi'] = ta.momentum.rsi(df['Close'], window=14)
-    df['macd'] = ta.trend.macd_diff(df['Close'])
-    df['bollinger_hband'] = ta.volatility.bollinger_hband(df['Close'])
-    df['bollinger_lband'] = ta.volatility.bollinger_lband(df['Close'])
-    df['atr'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'])
+    try:
+        df = supertrend(df, 10, 3.0)
+        df['rsi'] = ta.momentum.rsi(df['Close'], window=14)
+        df['macd'] = ta.trend.macd_diff(df['Close'])
+        df['bollinger_hband'] = ta.volatility.bollinger_hband(df['Close'])
+        df['bollinger_lband'] = ta.volatility.bollinger_lband(df['Close'])
+        df['atr'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'])
+        df['roc'] = ta.momentum.roc(df['Close'], window=10)
+        df['ppo'] = ta.momentum.ppo(df['Close'])
+        df['cci'] = ta.trend.cci(df['High'], df['Low'], df['Close'])
+        df['dmi_plus'] = ta.trend.adx_pos(df['High'], df['Low'], df['Close'], window=14)
+        df['dmi_minus'] = ta.trend.adx_neg(df['High'], df['Low'], df['Close'], window=14)
+        df['adx'] = ta.trend.adx(df['High'], df['Low'], df['Close'], window=14)
+        
+        df = moving_average(df, 20, 'sma')
+        
+    except Exception as e:
+        print(f"Error adding indicators: {str(e)}")
+
     return df
+
+def normalize_indicator(series, min_val, max_val):
+    return (series - min_val) / (max_val - min_val)
+
+def calculate_momentum_score(df):
+    roc_score = normalize_indicator(df['roc'], -10, 10)
+    rsi_score = normalize_indicator(df['rsi'], 0, 100)
+    return (roc_score + rsi_score) / 2
+
+def calculate_mean_reversion_score(df):
+    ppo_score = 1 - abs(normalize_indicator(df['ppo'], -1, 1))
+    cci_score = 1 - abs(normalize_indicator(df['cci'], -100, 100))
+    return (ppo_score + cci_score) / 2
+
+def calculate_trend_score(df):
+    supertrend_score = df['in_uptrend'].astype(int)
+    adx_score = normalize_indicator(df['adx'], 0, 100)
+    dmi_score = normalize_indicator(df['dmi_plus'] - df['dmi_minus'], -100, 100)
+    return (supertrend_score + adx_score + dmi_score) / 3
+
+def calculate_performance_metrics(returns):
+    sharpe_ratio = returns.mean() / returns.std() * np.sqrt(252)  # Annualized Sharpe Ratio
+    sortino_ratio = returns.mean() / returns[returns < 0].std() * np.sqrt(252)  # Annualized Sortino Ratio
+    max_drawdown = (returns.cumsum() - returns.cumsum().cummax()).min()
+    
+    return {
+        'sharpe_ratio': sharpe_ratio,
+        'sortino_ratio': sortino_ratio,
+        'max_drawdown': max_drawdown
+    }
 
 def train_ml_model(df):
     features = ['ma', 'rsi', 'macd', 'bollinger_hband', 'bollinger_lband', 'atr']
@@ -141,23 +177,36 @@ ny_tz = pytz.timezone('America/New_York')
 jerusalem_tz = pytz.timezone('Asia/Jerusalem')
 
 def get_time_until_ny_930():
-    # Get current time in Jerusalem
     now_jerusalem = datetime.now(jerusalem_tz)
-
-    # Get current time in New York
     now_ny = datetime.now(ny_tz)
-
-    # Define the next 9:30 AM in New York
     ny_target_time = now_ny.replace(hour=9, minute=30, second=0, microsecond=0)
 
-    # If the target time has already passed today, set it to the next day
     if now_ny >= ny_target_time:
         ny_target_time += timedelta(days=1)
 
-    # Convert the target time to Jerusalem time
     jerusalem_target_time = ny_target_time.astimezone(jerusalem_tz)
-
-    # Calculate the time difference
     time_until_target = jerusalem_target_time - now_jerusalem
 
     return time_until_target
+
+def process_symbol_data(symbol, start_date, end_date):
+    df = fetch_data(symbol, start_date, end_date)
+    if df is not None and not df.empty:
+        df = add_indicators(df)
+        if 'in_uptrend' not in df.columns:
+            print(f"Warning: 'in_uptrend' not found in DataFrame for {symbol}")
+        model = train_ml_model(df)
+        try:
+            features = ['ma', 'rsi', 'macd', 'bollinger_hband', 'bollinger_lband', 'atr']
+            for feature in features:
+                if feature not in df.columns:
+                    print(f"Missing feature '{feature}' in DataFrame for {symbol}")
+                    return None
+            print(f"Features for {symbol} before prediction: {df[features].tail()}")
+            df['ml_prediction'] = model.predict_proba(df[features])[:, 1]
+            print(f"ML predictions for {symbol}: {df['ml_prediction'].tail()}")
+        except Exception as e:
+            print(f"Error predicting ML values for {symbol}: {str(e)}")
+            return None
+        return df
+    return None

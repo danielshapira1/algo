@@ -8,5 +8,5 @@ python-dotenv
 requests
 beautifulsoup4
 nltk
-newsapi
+newsapi-python
 matplotlib

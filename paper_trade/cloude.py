@@ -10,7 +10,7 @@ from bs4 import BeautifulSoup
 import pytz
 import os
 from dotenv import load_dotenv
-from utils import api, fetch_latest_price, wait_for_order_fill, log_transaction, is_trading_hours, fetch_data, supertrend, moving_average, add_indicators, train_ml_model, get_time_until_ny_930
+from utils import api, fetch_latest_price, wait_for_order_fill, log_transaction, is_trading_hours, fetch_data, supertrend, moving_average, add_indicators, train_ml_model, get_time_until_ny_930, calculate_momentum_score, calculate_mean_reversion_score, calculate_trend_score, calculate_performance_metrics, process_symbol_data
 from p_m import start_monitoring, ensure_monitoring_thread
 import traceback
 import json
@@ -23,22 +23,20 @@ nltk.download('vader_lexicon', quiet=True)
 load_dotenv()
 
 newsapi = NewsApiClient(api_key=os.getenv('NEWS_API_KEY'))
+
 print(f"Account status: {api.get_account().status}")
 
-# Track settled and unsettled cash
 settled_cash = 100000  # Initialize with your starting settled cash amount
 unsettled_cash = 0
 peak_cash = settled_cash
 day_trade_count = 0
 day_trade_dates = []
 
-# Cache directory for storing news sentiment
 NEWS_CACHE_DIR = "news_cache"
 LAST_CLEANUP_FILE = "last_cleanup.txt"
 if not os.path.exists(NEWS_CACHE_DIR):
     os.makedirs(NEWS_CACHE_DIR)
 
-# Cleanup cache if it hasn't been cleaned in the last month
 def cleanup_news_cache():
     if not os.path.exists(LAST_CLEANUP_FILE):
         with open(LAST_CLEANUP_FILE, "w") as f:
@@ -55,12 +53,10 @@ def cleanup_news_cache():
             f.write(datetime.now().isoformat())
         print("News cache cleaned up.")
 
-# Get news sentiment with caching
 def get_news_sentiment(symbol, days_back=3, cache_duration=timedelta(days=1)):
-    company_name = symbol  # For simplicity, we're using the symbol as the company name
+    company_name = symbol
     cache_file = os.path.join(NEWS_CACHE_DIR, f"{symbol}_sentiment.json")
     
-    # Check if cache exists and is still valid
     if os.path.exists(cache_file):
         with open(cache_file, "r") as f:
             cache_data = json.load(f)
@@ -69,7 +65,6 @@ def get_news_sentiment(symbol, days_back=3, cache_duration=timedelta(days=1)):
                 print(f"Using cached sentiment for {symbol}")
                 return cache_data["sentiment"]
 
-    # Fetch new sentiment data if cache is expired or does not exist
     from_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
     to_date = datetime.now().strftime('%Y-%m-%d')
 
@@ -91,14 +86,12 @@ def get_news_sentiment(symbol, days_back=3, cache_duration=timedelta(days=1)):
             sentiment = sia.polarity_scores(text)['compound']
             sentiments.append(sentiment)
 
-        # Calculate average sentiment
         if sentiments:
             average_sentiment = sum(sentiments) / len(sentiments)
         else:
             print(f"No news found for {symbol}")
-            average_sentiment = 0  # Neutral sentiment if no news is found
+            average_sentiment = 0
 
-        # Cache the result
         cache_data = {
             "timestamp": datetime.now().isoformat(),
             "sentiment": average_sentiment
@@ -110,9 +103,8 @@ def get_news_sentiment(symbol, days_back=3, cache_duration=timedelta(days=1)):
 
     except Exception as e:
         print(f"Error fetching news sentiment for {symbol}: {str(e)}")
-        return 0  # Return neutral sentiment in case of an error
+        return 0
 
-# Fetch top gainers
 def fetch_top_gainers(num_of_gainers):
     url = 'https://stockanalysis.com/markets/gainers/'
     response = requests.get(url)
@@ -126,34 +118,32 @@ def fetch_top_gainers(num_of_gainers):
             gainers.append(symbol)
     return gainers
 
-# Calculate positions based on available buying power and data
 def calculate_positions(buying_power, data):
     positions = {}
     total_score = sum(df.iloc[-1]['combined_score'] for df in data.values() if df is not None and not df.empty)
     for symbol, df in data.items():
         if df is not None and not df.empty:
             last_row = df.iloc[-1]
+            if 'in_uptrend' not in last_row:
+                print(f"'in_uptrend' not found for {symbol}")
+                continue
             if last_row['in_uptrend'] or last_row['ml_prediction'] >= 0.6:
                 score = last_row['combined_score']
                 allocation = (score / total_score) * buying_power if total_score > 0 else 0
-                max_position_size = min(buying_power * 0.2, 50000)  # Increased to 20% of buying power
-                positions[symbol] = max(min(allocation, max_position_size), 100)  # Minimum position size of $100
+                max_position_size = min(buying_power * 0.2, 50000)
+                positions[symbol] = max(min(allocation, max_position_size), 100)
     return positions
 
-# Check if we can perform a day trade
 def can_day_trade(date):
     global day_trade_count, day_trade_dates
-    # Remove dates older than 5 business days
     day_trade_dates = [d for d in day_trade_dates if (date - d).days <= 5]
     day_trade_count = len(day_trade_dates)
     return day_trade_count < 3
 
-# Update day trade count
 def update_day_trade_count(date):
     global day_trade_dates
     day_trade_dates.append(date)
 
-# Execute buy orders
 def execute_buy_orders(api, positions, buying_power):
     global settled_cash, unsettled_cash
     for symbol, amount in positions.items():
@@ -163,12 +153,28 @@ def execute_buy_orders(api, positions, buying_power):
                 print(f"Asset {symbol} is not tradable.")
                 continue
 
-            current_price = fetch_latest_price(api, symbol)  # Corrected call to fetch_latest_price
+            current_price = fetch_latest_price(api, symbol)
             
-            # Calculate quantity based on available buying power and position size
-            max_quantity = min(amount, buying_power) / current_price
+            # Use process_symbol_data to get the processed DataFrame
+            df = process_symbol_data(symbol, (datetime.now() - timedelta(days=6)).strftime('%Y-%m-%d'), datetime.now().strftime('%Y-%m-%d'))
+            if df is None or df.empty:
+                print(f"Invalid or incomplete data for {symbol}. Skipping buy order.")
+                continue
             
-            # Scale in approach: Start with 50% of intended position size
+            required_columns = ['in_uptrend', 'ma', 'rsi', 'macd', 'bollinger_hband', 'bollinger_lband', 'atr', 'ml_prediction']
+            missing_columns = [col for col in required_columns if col not in df.columns]
+            if missing_columns:
+                print(f"Missing columns for {symbol}: {missing_columns}. Skipping buy order.")
+                continue
+
+            atr = df['atr'].iloc[-1]
+            combined_score = calculate_combined_score(df.iloc[-1])
+            risk_per_trade = buying_power * 0.01
+            position_size = risk_per_trade / (atr * 2)
+            position_size *= combined_score
+
+            max_quantity = min(position_size, buying_power) / current_price
+            
             initial_quantity = max_quantity * 0.5
             if not asset.fractionable:
                 initial_quantity = int(initial_quantity)
@@ -196,9 +202,9 @@ def execute_buy_orders(api, positions, buying_power):
 
         except Exception as e:
             print(f"Error executing buy order for {symbol}: {str(e)}")
+            print(f"Error type: {type(e).__name__}")
+            print(f"Error details: {traceback.format_exc()}")
 
-
-# Execute sell orders
 def execute_sell_orders(api, data):
     global settled_cash, unsettled_cash
     positions = api.list_positions()
@@ -217,10 +223,8 @@ def execute_sell_orders(api, data):
         average_entry = float(position.avg_entry_price)
         unrealized_plpc = (current_price - average_entry) / average_entry
 
-        # Implement trailing stop loss
         trailing_stop_loss = max(average_entry * 0.90, current_price * 0.95)
 
-        # Determine whether to sell based on multiple factors
         should_sell = (
             not last_row['in_uptrend'] or 
             last_row['ml_prediction'] == 0 or 
@@ -265,17 +269,34 @@ def execute_sell_orders(api, data):
             except Exception as e:
                 print(f"Error executing sell order for {symbol}: {str(e)}")
 
-
-
-def calculate_combined_score(df):
-    last_row = df.iloc[-1]
-    technical_score = (last_row['in_uptrend'] * 0.3 + 
-                       (last_row['Close'] > last_row['ma']) * 0.2 + 
-                       (last_row['rsi'] > 50) * 0.1 + 
-                       (last_row['macd'] > 0) * 0.1)
-    ml_score = last_row['ml_prediction'] * 0.2
-    sentiment_score = (last_row['sentiment'] + 1) / 2 * 0.1  # Normalize sentiment to [0, 1]
+def calculate_combined_score(row):
+    technical_score = (row['in_uptrend'] * 0.3 + 
+                       (row['Close'] > row['ma']) * 0.2 + 
+                       (row['rsi'] > 50) * 0.1 + 
+                       (row['macd'] > 0) * 0.1)
+    ml_score = row['ml_prediction'] * 0.2
+    sentiment_score = (row['sentiment'] + 1) / 2 * 0.1
     return technical_score + ml_score + sentiment_score
+
+def run_baseline_strategy(data):
+    for symbol, df in data.items():
+        df['sma_short'] = df['Close'].rolling(window=10).mean()
+        df['sma_long'] = df['Close'].rolling(window=50).mean()
+        df['position'] = np.where(df['sma_short'] > df['sma_long'], 1, 0)
+        df['returns'] = df['Close'].pct_change()
+        df['strategy_returns'] = df['position'].shift(1) * df['returns']
+    
+    return data
+
+def calculate_strategy_returns(data):
+    all_returns = []
+    for symbol, df in data.items():
+        if 'strategy_returns' in df.columns:
+            all_returns.append(df['strategy_returns'])
+    if not all_returns:
+        print("No strategy returns available. Skipping performance calculation.")
+        return pd.Series()
+    return pd.concat(all_returns, axis=1).mean(axis=1)
 
 def run_strategy():
     global day_trade_count, peak_cash
@@ -283,21 +304,20 @@ def run_strategy():
     
     top_gainers = fetch_top_gainers(5)
     symbols = ['AAPL', 'GOOG', 'MSFT', 'AMZN', 'NVDA'] + top_gainers
-    end_date = datetime.now().strftime('%Y-%m-%d')
-    start_date = (datetime.now() - timedelta(days=4)).strftime('%Y-%m-%d')
-    
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=6)
+    start_date_str = start_date.strftime('%Y-%m-%d')
+    end_date_str = end_date.strftime('%Y-%m-%d')
+
     data = {}
     for symbol in symbols:
-        df = fetch_data(symbol, start_date, end_date)
+        df = process_symbol_data(symbol, start_date_str, end_date_str)
         if df is not None:
-            df = supertrend(df, 10, 3.0)
-            df = moving_average(df, 20, 'sma')
-            df = add_indicators(df)
-            model = train_ml_model(df)
-            df['ml_prediction'] = model.predict_proba(df[['ma', 'rsi', 'macd', 'bollinger_hband', 'bollinger_lband', 'atr']])[:, 1]
             df['sentiment'] = get_news_sentiment(symbol)
-            df['combined_score'] = calculate_combined_score(df)
+            df['combined_score'] = df.apply(calculate_combined_score, axis=1)
             data[symbol] = df
+        else:
+            print(f"Data not available for {symbol}")
     
     account = api.get_account()
     buying_power = float(account.buying_power)
@@ -305,6 +325,18 @@ def run_strategy():
     positions = calculate_positions(buying_power, data)
     execute_buy_orders(api, positions, buying_power)
     execute_sell_orders(api, data)
+
+    strategy_returns = calculate_strategy_returns(data)
+    strategy_metrics = calculate_performance_metrics(strategy_returns)
+
+    baseline_data = run_baseline_strategy({symbol: df.copy() for symbol, df in data.items()})
+    baseline_returns = calculate_strategy_returns(baseline_data)
+    baseline_metrics = calculate_performance_metrics(baseline_returns)
+
+    print("Enhanced Strategy Metrics:")
+    print(strategy_metrics)
+    print("Baseline Strategy Metrics:")
+    print(baseline_metrics)
     
     if not can_day_trade(today):
         print("Day trading limit reached. Skipping day trades for today.")
@@ -349,7 +381,6 @@ def normalize_score(outcome, min_outcome, max_outcome):
     score = normalized * 0.5 + 0.5
     return score
 
-# Analyze transactions
 def analyze_transactions(log_file='transactions_log.csv'):
     transactions = pd.read_csv(log_file, names=['timestamp', 'type', 'symbol', 'quantity', 'price', 'outcome'])
     
@@ -371,7 +402,6 @@ def analyze_transactions(log_file='transactions_log.csv'):
     print(f"Average Profit/Loss per Trade: {avg_profit_loss:.2%}")
     print(f"Total Score of Transactions: {total_score:.2f}")
 
-# Settle trades (simulate T+2 settlement)
 def settle_trades():
     global settled_cash, unsettled_cash
     today = datetime.now().date()
@@ -387,15 +417,12 @@ def settle_trades():
                 unsettled_cash -= float(row['quantity']) * float(row['price'])
                 settled_cash += float(row['quantity']) * float(row['price'])
 
-
-
 monitoring_thread = start_monitoring(api)
 
-# In your main loop
 while True:
     try:
         monitoring_thread = ensure_monitoring_thread(monitoring_thread, api)
-        cleanup_news_cache()  # Clean up the news cache if needed
+        cleanup_news_cache()
         if is_trading_hours(api):
             settle_trades()
             run_strategy()
@@ -404,8 +431,6 @@ while True:
             hours, remainder = divmod(time_until_target.total_seconds(), 3600)
             minutes, seconds = divmod(remainder, 60)
             print(f"Outside trading hours opens in: {int(hours):02}:{int(minutes):02}:{int(seconds):02}")
-
-            # Sleep until the target time
             time.sleep(time_until_target.total_seconds())
    
         analyze_transactions()
