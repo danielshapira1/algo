@@ -163,4 +163,5 @@ cython_debug/
 #.idea/
 
 /news_cache
-transactions_log.*
+transactions_log*
+transactions_log.csv

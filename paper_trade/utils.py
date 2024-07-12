@@ -6,10 +6,13 @@ import time
 from datetime import datetime, timedelta
 import ta
 import csv
+import json
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import train_test_split
 import os
 import pytz
+from nltk.sentiment import SentimentIntensityAnalyzer
+from newsapi import NewsApiClient
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -20,6 +23,81 @@ PAPER_SECRET_KEY = os.getenv('APCA_API_SECRET_KEY_PAPER')
 PAPER_BASE_URL = os.getenv('APCA_API_BASE_URL_PAPER')
 
 api = tradeapi.REST(PAPER_API_KEY_ID, PAPER_SECRET_KEY, PAPER_BASE_URL, api_version='v2')
+
+newsapi = NewsApiClient(api_key=os.getenv('NEWS_API_KEY'))
+
+NEWS_CACHE_DIR = "news_cache"
+LAST_CLEANUP_FILE = "last_cleanup.txt"
+if not os.path.exists(NEWS_CACHE_DIR):
+    os.makedirs(NEWS_CACHE_DIR)
+
+def cleanup_news_cache():
+    if not os.path.exists(LAST_CLEANUP_FILE):
+        with open(LAST_CLEANUP_FILE, "w") as f:
+            f.write(datetime.now().isoformat())
+        return
+    
+    with open(LAST_CLEANUP_FILE, "r") as f:
+        last_cleanup_date = datetime.fromisoformat(f.read().strip())
+    
+    if (datetime.now() - last_cleanup_date).days >= 30:
+        for file in os.listdir(NEWS_CACHE_DIR):
+            os.remove(os.path.join(NEWS_CACHE_DIR, file))
+        with open(LAST_CLEANUP_FILE, "w") as f:
+            f.write(datetime.now().isoformat())
+        print("News cache cleaned up.")
+
+def get_news_sentiment(symbol, days_back=3, cache_duration=timedelta(days=1)):
+    company_name = symbol
+    cache_file = os.path.join(NEWS_CACHE_DIR, f"{symbol}_sentiment.json")
+    
+    if os.path.exists(cache_file):
+        with open(cache_file, "r") as f:
+            cache_data = json.load(f)
+            cache_timestamp = datetime.fromisoformat(cache_data["timestamp"])
+            if datetime.now() - cache_timestamp < cache_duration:
+                print(f"Using cached sentiment for {symbol}")
+                return cache_data["sentiment"]
+
+    from_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+    to_date = datetime.now().strftime('%Y-%m-%d')
+
+    try:
+        news = newsapi.get_everything(
+            q=company_name,
+            from_param=from_date,
+            to=to_date,
+            language='en',
+            sort_by='relevancy',
+            page=1
+        )
+
+        sia = SentimentIntensityAnalyzer()
+        sentiments = []
+
+        for article in news['articles']:
+            text = article['title'] + ' ' + (article['description'] or '')
+            sentiment = sia.polarity_scores(text)['compound']
+            sentiments.append(sentiment)
+
+        if sentiments:
+            average_sentiment = sum(sentiments) / len(sentiments)
+        else:
+            print(f"No news found for {symbol}")
+            average_sentiment = 0
+
+        cache_data = {
+            "timestamp": datetime.now().isoformat(),
+            "sentiment": average_sentiment
+        }
+        with open(cache_file, "w") as f:
+            json.dump(cache_data, f)
+
+        return average_sentiment
+
+    except Exception as e:
+        print(f"Error fetching news sentiment for {symbol}: {str(e)}")
+        return 0
 
 def fetch_latest_price(api, symbol):
     try:
@@ -117,6 +195,7 @@ def add_indicators(df):
         df['bollinger_hband'] = ta.volatility.bollinger_hband(df['Close'])
         df['bollinger_lband'] = ta.volatility.bollinger_lband(df['Close'])
         df['atr'] = ta.volatility.average_true_range(df['High'], df['Low'], df['Close'])
+        df['ma'] = ta.trend.sma_indicator(df['Close'], window=20)
         df['roc'] = ta.momentum.roc(df['Close'], window=10)
         df['ppo'] = ta.momentum.ppo(df['Close'])
         df['cci'] = ta.trend.cci(df['High'], df['Low'], df['Close'])
@@ -203,6 +282,7 @@ def process_symbol_data(symbol, start_date, end_date):
                     print(f"Missing feature '{feature}' in DataFrame for {symbol}")
                     return None
             print(f"Features for {symbol} before prediction: {df[features].tail()}")
+            df['sentiment'] = get_news_sentiment(symbol)
             df['ml_prediction'] = model.predict_proba(df[features])[:, 1]
             print(f"ML predictions for {symbol}: {df['ml_prediction'].tail()}")
         except Exception as e:
