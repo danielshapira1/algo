@@ -1,0 +1,119 @@
+Partially addressed:
+
+GUI: Develop a graphical user interface for easier monitoring and control.
+Backtesting: We implemented a basic backtesting framework, but it could be enhanced further.
+
+Implement Advanced Trading Strategies:
+
+Add support for multiple trading strategies (e.g., mean reversion, momentum, sentiment analysis)
+Implement a strategy selection mechanism based on market conditions
+Develop a machine learning model to predict stock movements
+Prompt: "Outline a plan to implement three diverse trading strategies (mean reversion, momentum, and sentiment analysis) in the existing system. Include a strategy selection mechanism based on market conditions and a basic machine learning model for stock movement prediction. Provide code snippets for key components and discuss potential challenges in integration."
+
+
+Enhance Risk Management:
+
+Implement more sophisticated position sizing algorithms
+Add support for stop-loss and take-profit orders
+Develop a dynamic risk adjustment mechanism based on market volatility
+Prompt: "Design an enhanced risk management system that includes advanced position sizing, stop-loss and take-profit order implementation, and a dynamic risk adjustment mechanism. Provide pseudocode for each component and explain how they interact with the existing system. Address potential pitfalls and their solutions."
+
+
+Improve Market Analysis:
+
+Implement technical indicators (e.g., RSI, MACD, Bollinger Bands)
+Add fundamental analysis capabilities (e.g., P/E ratio, earnings growth)
+Integrate sentiment analysis from news and social media
+Prompt: "Create a comprehensive market analysis module that incorporates technical indicators, fundamental analysis, and sentiment analysis. Provide implementation details for each component, including data sources and calculation methods. Discuss how to effectively combine these diverse analysis types for improved trading decisions."
+
+
+Optimize Performance:
+
+Implement parallel processing for faster data analysis
+Use caching mechanisms to reduce API calls and improve speed
+Optimize the stock selection algorithm in stock_finder.py
+Prompt: "Develop a plan to optimize the system's performance, focusing on parallel processing, efficient caching, and improving the stock selection algorithm. Provide code examples for implementing parallel processing and caching. Analyze the current stock_finder.py and suggest specific optimizations with code snippets."
+
+
+Enhance Backtesting Capabilities:
+
+Develop a more comprehensive backtesting framework in backtester.py
+Implement walk-forward optimization
+Add support for Monte Carlo simulations
+Prompt: "Design an advanced backtesting framework that includes walk-forward optimization and Monte Carlo simulations. Provide a detailed structure for the enhanced backtester.py, including key functions and classes. Explain the implementation of walk-forward optimization and Monte Carlo simulations with code examples."
+
+
+Improve Position Management:
+
+Implement a more sophisticated portfolio rebalancing algorithm
+Add support for sector rotation strategies
+Develop a mechanism for handling corporate actions (e.g., splits, dividends)
+Prompt: "Create an advanced position management system with improved portfolio rebalancing, sector rotation capabilities, and corporate action handling. Provide pseudocode for the rebalancing algorithm and sector rotation strategy. Explain how to integrate corporate action handling into the existing system."
+
+
+Enhance Market Regime Detection:
+
+Implement more advanced market regime detection algorithms
+Add support for multi-timeframe analysis
+Develop adaptive parameters based on detected market regimes
+Prompt: "Design an enhanced market regime detection system that incorporates advanced algorithms, multi-timeframe analysis, and adaptive parameters. Provide code snippets for key components and explain how to integrate this system with the existing trading strategies. Discuss potential challenges in accurately identifying market regimes."
+
+
+Implement Advanced Order Types:
+
+Add support for bracket orders
+Implement trailing stop orders
+Develop a smart order routing system
+Prompt: "Implement advanced order types including bracket orders and trailing stops, and design a smart order routing system. Provide code examples for each order type and outline the architecture for the smart order routing system. Discuss potential issues with order execution and how to mitigate them."
+
+
+Enhance Performance Tracking:
+
+Add more performance metrics (e.g., Sortino ratio, Calmar ratio)
+Implement drawdown analysis
+Develop a trade journaling system for post-trade analysis
+Prompt: "Expand the performance tracking capabilities by adding advanced metrics, implementing drawdown analysis, and creating a comprehensive trade journaling system. Provide formulas and implementation details for new metrics. Design the structure of the trade journaling system and explain how it can be used for performance improvement."
+
+
+Improve Error Handling and Robustness:
+
+Implement circuit breakers to pause trading during extreme market conditions
+Develop a system for handling network issues and API rate limits
+Implement a comprehensive error recovery mechanism
+Prompt: "Design a robust error handling system that includes circuit breakers, network issue management, and error recovery mechanisms. Provide pseudocode for implementing circuit breakers and handling API rate limits. Outline a comprehensive error recovery strategy with specific examples of how it would handle different types of failures."
+
+
+Add Multi-Asset Support:
+
+Extend the system to support trading multiple asset classes (e.g., ETFs, options, futures)
+Implement correlation analysis for better portfolio diversification
+Prompt: "Develop a plan to extend the trading system to support multiple asset classes and implement correlation analysis for improved diversification. Provide a design for a flexible asset class handling system and code snippets for correlation analysis. Discuss challenges in dealing with different asset characteristics and how to overcome them."
+
+
+Develop a Configuration System:
+
+Create a flexible configuration system to easily adjust trading parameters
+Implement a mechanism for hot-reloading configuration changes
+Prompt: "Design a flexible and user-friendly configuration system that allows easy parameter adjustment and supports hot-reloading of changes. Provide a sample configuration file structure and code for the hot-reloading mechanism. Discuss potential security concerns and how to address them."
+
+
+Enhance Logging and Monitoring:
+
+Implement more detailed logging of trading decisions and their rationale
+Develop real-time monitoring of key performance indicators
+Create alerts for critical events or performance thresholds
+Prompt: "Create an enhanced logging and monitoring system that provides detailed insights into trading decisions, real-time performance monitoring, and critical alerts. Design the structure of detailed log entries and provide code for real-time KPI monitoring. Develop a flexible alerting system and discuss how to balance informativeness with avoiding alert fatigue."
+
+
+Implement Paper Trading Mode:
+
+Develop a paper trading mode for testing strategies without real money
+Implement realistic slippage and transaction cost modeling
+Prompt: "Design and implement a paper trading mode that accurately simulates real trading conditions, including realistic slippage and transaction costs. Provide code snippets for key components of the paper trading system. Discuss how to ensure the paper trading results closely match what would occur in live trading."
+
+
+Add Market Data Validation:
+
+Implement data quality checks to ensure the integrity of market data
+Develop mechanisms to handle missing or erroneous data
+Prompt: "Create a robust market data validation system that includes quality checks and mechanisms for handling data issues. Provide code examples for common data quality checks and methods for dealing with missing or erroneous data. Discuss the impact of data quality on trading performance and how to minimize negative effects."

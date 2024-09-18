@@ -10,3 +10,6 @@ beautifulsoup4
 nltk
 newsapi-python
 matplotlib
+streamlit
+textblob
+plotly

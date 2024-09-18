@@ -1,11 +1,16 @@
 import alpaca_trade_api as tradeapi
+import os
+from dotenv import load_dotenv
 
 # Alpaca API credentials
 API_KEY = 'PK7FWRNN8VUZF61OD401'
 SECRET_KEY = 'bZLOjm8hn2htnZK4c5F34qsqAsLwZDPPlfLSfTqD'
 BASE_URL = 'https://paper-api.alpaca.markets' 
 
-api = tradeapi.REST(API_KEY, SECRET_KEY, BASE_URL, api_version='v2')
+api_key = os.getenv('APCA_API_KEY_ID_PAPER')
+api_secret = os.getenv('APCA_API_SECRET_KEY_PAPER')
+base_url = os.getenv('APCA_API_BASE_URL_PAPER')
+api = tradeapi.REST(api_key, api_secret, base_url, api_version='v2')
 
 # Check account details to verify API credentials
 try:
